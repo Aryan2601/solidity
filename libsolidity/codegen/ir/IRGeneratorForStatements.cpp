@@ -774,9 +774,7 @@ void IRGeneratorForStatements::endVisit(FunctionCall const& _functionCall)
 			"))\n";
 		break;
 	}
-	case FunctionType::Kind::ECRecover:
 	case FunctionType::Kind::SHA256:
-	case FunctionType::Kind::RIPEMD160:
 	{
 		solAssert(!_functionCall.annotation().tryCall, "");
 		appendExternalFunctionCall(_functionCall, arguments);
@@ -971,6 +969,52 @@ void IRGeneratorForStatements::endVisit(FunctionCall const& _functionCall)
 			templ("success", IRVariable(_functionCall).commaSeparatedList());
 		templ("isTransfer", functionType->kind() == FunctionType::Kind::Transfer);
 		templ("forwardingRevert", m_utils.forwardingRevertFunction());
+		m_code << templ.render();
+
+		break;
+	}
+	case FunctionType::Kind::ECRecover:
+	case FunctionType::Kind::RIPEMD160:
+	{
+		static map<FunctionType::Kind, int> precompiles = {
+			{FunctionType::Kind::ECRecover, 1},
+			{FunctionType::Kind::RIPEMD160, 3},
+		};
+		solAssert(arguments.size() == 1 && parameterTypes.size() == 1, "");
+		TypePointers argumentTypes;
+		vector<string> argumentStrings;
+		for (auto const& arg: arguments)
+		{
+			argumentTypes.emplace_back(&type(*arg));
+			if (IRVariable(*arg).type().sizeOnStack() > 0)
+				argumentStrings.emplace_back(IRVariable(*arg).commaSeparatedList());
+		}
+		string argumentString = argumentStrings.empty() ? ""s : (", " + joinHumanReadable(argumentStrings));
+		ABIFunctions abi(m_context.evmVersion(), m_context.revertStrings(), m_context.functionCollector());
+		FunctionType const& funType = dynamic_cast<FunctionType const&>(type(_functionCall.expression()));
+		ReturnInfo const returnInfo{m_context.evmVersion(), funType};
+		Whiskers templ(R"(
+		let <pos> := <freeMemory>
+		let <end> := <encodeArgs>(
+			<pos>
+			<argumentString>
+		)
+		let <success> := staticcall(gas(), <address>, <pos>, sub(<end>, <pos>), <pos>, 32)
+		let <retVars>
+		if <success> {
+			returndatacopy(<pos>, 0, returndatasize())
+			<retVars> := <pos>
+		}
+		)");
+		templ("freeMemory", freeMemory());
+		templ("pos", m_context.newYulVariable());
+		templ("end", m_context.newYulVariable());
+		templ("encodeArgs", abi.tupleEncoderPacked(argumentTypes, funType.parameterTypes()));
+		templ("argumentString", argumentString);
+		templ("address", toString(precompiles[functionType->kind()]));
+		templ("success", m_context.newYulVariable());
+		string const retVars = IRVariable(_functionCall).commaSeparatedList();
+		templ("retVars", retVars);
 		m_code << templ.render();
 
 		break;
