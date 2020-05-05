@@ -23,6 +23,8 @@ contract C {
     }
 }
 
+// ====
+// compileViaYul: also
 // ----
 // test_eq_ok() -> 1
 // test_eq() -> FAILURE # both should throw #

@@ -11,5 +11,7 @@ contract C {
     }
 }
 
+// ====
+// compileViaYul: also
 // ----
-// f() -> "\xff\xff\xff\xff"
+// f() -> "ÿÿÿÿ"
